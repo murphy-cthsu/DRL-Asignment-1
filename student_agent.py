@@ -5,8 +5,8 @@ import gym
 from collections import defaultdict
 from Q_agent import TaxiAgent
 
-agent= TaxiAgent()
-agent.load_policy('taxi_agent_qvalues.npy')
+agent= TaxiAgent(epsilon=0.0)
+agent.load_policy('taxi_agent_policy.npy')
 
 def get_action(state):
     """
