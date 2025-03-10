@@ -3,7 +3,7 @@ import numpy as np
 import importlib.util
 import time
 from IPython.display import clear_output
-import random
+from tqdm import tqdm
 # This environment allows you to verify whether your program runs correctly during testing, 
 # as it follows the same observation format from `env.reset()` and `env.step()`. 
 # However, keep in mind that this is just a simplified environment. 
@@ -217,6 +217,10 @@ if __name__ == "__main__":
     env_config = {
         "fuel_limit": 5000
     }
-    
-    agent_score = run_agent("student_agent.py", env_config, render=True)
-    print(f"Final Score: {agent_score}")
+    average_score = 0
+    for i in range(50):
+        print(f"Running Agent {i + 1}/50")
+        agent_score = run_agent("student_agent.py", env_config, render=True)
+        average_score += agent_score
+    average_score /= 50
+    print(f"Average Score: {average_score}")
