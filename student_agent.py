@@ -5,8 +5,7 @@ import gym
 from collections import defaultdict
 from Q_agent import TaxiAgent
 
-agent= TaxiAgent(epsilon=0.0)
-agent.load_policy('taxi_agent_qvalues.npy')
+
 # print(agent.Q)
 def get_action(state):
     """
@@ -23,7 +22,6 @@ def get_action(state):
     int
         The selected action
     """
-    # This function assumes a global 'agent' variable has been created
-    # and trained before being called by the environment runner
-    global agent
+    agent= TaxiAgent(epsilon=0.0)
+    agent.load_policy('taxi_agent_qvalues.npy')
     return agent.get_action(state)
