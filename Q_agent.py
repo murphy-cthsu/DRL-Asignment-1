@@ -206,7 +206,7 @@ def get_action(state):
 
 # Example usage:
 if __name__ == "__main__":
-    from simpletaxi import SimpleTaxiEnv
+    from simple_custom_taxi_env import SimpleTaxiEnv
     
     # Create environment
     env = SimpleTaxiEnv(fuel_limit=5000)

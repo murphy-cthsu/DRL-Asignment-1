@@ -184,7 +184,7 @@ if __name__ == "__main__":
     
     # Train agent
     print("Starting training...")
-    scores, avg_scores = train_agent(env, agent, num_episodes=150000, max_steps=1000, 
+    scores, avg_scores = train_agent(env, agent, num_episodes=50000, max_steps=1000, 
                                     print_every=100, plot_every=500)
     
     # Save the trained Q-values
