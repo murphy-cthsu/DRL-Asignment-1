@@ -183,23 +183,30 @@ class TaxiStateTracker:
     
     def _update_station_knowledge(self):
         """Update knowledge about stations based on current position and observations"""
-        # If we don't know passenger location but detect one at current station
-        if (self.passenger_location is None and 
-                self.passenger_nearby and 
-                self.taxi_position in self.station_positions):
-            
-            # Mark current station as passenger location
-            station_index = self.station_positions.index(self.taxi_position)
-            self.passenger_location = self.taxi_position
-            self.location_types[station_index] = StationState.PASSENGER_LOCATION
-            
         # If we're at a station, update its type
         if self.taxi_position in self.station_positions:
             station_index = self.station_positions.index(self.taxi_position)
             
-            # If destination detected, mark as destination
+            # Check if this station is the destination
             if self.destination_nearby:
-                self.location_types[station_index] = StationState.DESTINATION_LOCATION
+                # Only update if we haven't found a destination yet or if this was previously marked as destination
+                if (StationState.DESTINATION_LOCATION not in self.location_types or 
+                    self.location_types[station_index] == StationState.DESTINATION_LOCATION):
+                    # Clear any previous destination marking (if any other station was incorrectly marked)
+                    for i, loc_type in enumerate(self.location_types):
+                        if i != station_index and loc_type == StationState.DESTINATION_LOCATION:
+                            # Downgrade to empty if it was falsely marked as destination
+                            self.location_types[i] = StationState.EMPTY
+                    
+                    # Mark current station as destination
+                    self.location_types[station_index] = StationState.DESTINATION_LOCATION
+                
+            # If passenger is nearby (and we don't know passenger location yet)
+            elif (self.passenger_nearby and 
+                (self.passenger_location is None or self.taxi_position == self.passenger_location)):
+                self.passenger_location = self.taxi_position
+                self.location_types[station_index] = StationState.PASSENGER_LOCATION
+                
             # Otherwise if still unexplored, mark as empty
             elif self.location_types[station_index] == StationState.UNEXPLORED:
                 self.location_types[station_index] = StationState.EMPTY
@@ -214,7 +221,7 @@ class TaxiStateTracker:
         if known_count == 3:
             # Find index of unknown station
             unknown_index = self.location_types.index(StationState.UNEXPLORED)
-            print(self.location_types)
+            # print(self.location_types)
             # Calculate what the unknown station must be (sum of all types = 7)
             deduced_type = StationState(7 - sum(self.location_types))
             self.location_types[unknown_index] = deduced_type
