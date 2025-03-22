@@ -30,7 +30,7 @@ class TrainingConfig:
             config_dict: Dictionary of configuration values (optional)
         """
         # Training parameters
-        self.episodes = 8000
+        self.episodes = 10000
         self.learning_rate = 0.01
         self.discount_factor = 0.99
         self.entropy_coefficient = 0.01
@@ -44,7 +44,7 @@ class TrainingConfig:
         self.difficulty_progression = True  # Whether to increase difficulty over time
         
         # Model parameters
-        self.hidden_sizes = [16]
+        self.hidden_sizes = [8]
         self.dropout_rate = 0
         
         # Output parameters
@@ -402,7 +402,7 @@ def train_policy_gradient(config: TrainingConfig):
         for episode in progress_bar:
             # Determine difficulty based on progression
             if config.difficulty_progression:
-                difficulty = 'normal' if episode < config.episodes / 3 else 'hard'
+                difficulty = 'normal' #if episode < config.episodes /3 else 'hard'
             else:
                 difficulty = 'hard'  # Always hard if no progression
                 
@@ -452,7 +452,8 @@ def train_policy_gradient(config: TrainingConfig):
                 
                 # Apply reward shaping
                 shaped_reward = enhance_reward(reward, info, next_info)
-                
+                if done and step_count > 200:
+                    shaped_reward += -12 # Additional penalty for long episodes
                 # Add shaped reward to episode totals
                 total_reward += shaped_reward
                 rewards.append(shaped_reward)
