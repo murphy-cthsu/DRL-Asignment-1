@@ -44,8 +44,8 @@ class TrainingConfig:
         self.difficulty_progression = True  # Whether to increase difficulty over time
         
         # Model parameters
-        self.hidden_sizes = [64, 32]
-        self.dropout_rate = 0.1
+        self.hidden_sizes = [16]
+        self.dropout_rate = 0
         
         # Output parameters
         self.model_save_path = 'trained_models/policy_model.pth'
@@ -159,7 +159,7 @@ class PolicyModel(nn.Module):
         self.action_head = nn.Softmax(dim=-1)
         
         # Initialize weights properly
-        self._initialize_weights()
+        # self._initialize_weights()
     
     def _initialize_weights(self):
         """Initialize network weights for better training"""
@@ -394,18 +394,7 @@ def train_policy_gradient(config: TrainingConfig):
     # Setup optimizer with weight decay for regularization
     optimizer = optim.Adam(
         policy_model.parameters(), 
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay
-    )
-    
-    # Learning rate scheduler for better convergence
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 
-        mode='max', 
-        factor=config.scheduler_factor, 
-        patience=config.scheduler_patience,
-        threshold=config.scheduler_threshold,
-        verbose=True
+        lr=config.learning_rate
     )
     
     # Training loop with progress bar
@@ -428,16 +417,14 @@ def train_policy_gradient(config: TrainingConfig):
             
             # Initialize episode variables
             log_probs = []
-            episode_rewards = []
-            episode_states = set()
+            rewards = []
             total_reward = 0
-            entropy_sum = 0
             
             # Reset environment and state tracker
             observation, _ = env.reset()
             state_tracker.initialize()
             state, info = state_tracker.process_observation(observation)
-            episode_states.add(state)
+            metrics.unique_states.add(state)
             
             # Episode loop
             done = False
@@ -449,14 +436,7 @@ def train_policy_gradient(config: TrainingConfig):
                 action_probs = policy_model(state)
                 dist = torch.distributions.Categorical(action_probs)
                 action = dist.sample()
-                log_prob = dist.log_prob(action)
-                
-                # Calculate entropy for exploration bonus
-                entropy = dist.entropy()
-                entropy_sum += entropy
-                
-                # Add to log probs
-                log_probs.append(log_prob)
+                log_probs.append(dist.log_prob(action))
                 
                 # Update state tracker with action
                 state_tracker.update_after_action(action.item())
@@ -464,7 +444,7 @@ def train_policy_gradient(config: TrainingConfig):
                 # Take action in environment
                 next_observation, reward, done, truncated, _ = env.step(action.item())
                 next_state, next_info = state_tracker.process_observation(next_observation)
-                episode_states.add(next_state)
+                metrics.unique_states.add(next_state)
                 
                 # Check for success
                 if done and reward > 49:
@@ -475,79 +455,81 @@ def train_policy_gradient(config: TrainingConfig):
                 
                 # Add shaped reward to episode totals
                 total_reward += shaped_reward
-                episode_rewards.append(shaped_reward)
+                rewards.append(shaped_reward)
                 
                 # Update state for next step
                 state = next_state
                 info = next_info
                 step_count += 1
             
+            # Add episode results to metrics
+            metrics.rewards.append(total_reward)
+            metrics.successes.append(success)
+            metrics.step_counts.append(step_count)
+            
             # Calculate discounted returns
-            returns = calculate_discounted_returns(
-                episode_rewards, 
-                config.discount_factor
-            )
+            returns = []
+            R = 0
+            for r in reversed(rewards):
+                R = r + config.discount_factor * R
+                returns.insert(0, R)
             
             # Normalize returns for stability
-            returns = normalize_tensor(torch.tensor(returns))
+            returns = torch.tensor(returns)
+            returns = (returns - returns.mean()) / (returns.std() + 1e-9)
             
-            # Calculate policy loss with entropy bonus
-            policy_loss = 0
-            for log_prob, ret in zip(log_probs, returns):
-                policy_loss += -log_prob * ret
+            # Calculate policy loss
+            policy_loss = []
+            for log_prob, R in zip(log_probs, returns):
+                policy_loss.append(-log_prob * R)
+            loss = torch.stack(policy_loss).sum()
             
-            # Add entropy bonus to encourage exploration
-            loss = policy_loss - config.entropy_coefficient * entropy_sum / len(log_probs)
+            # Update metrics
+            metrics.losses.append(loss.item())
             
             # Update policy
             optimizer.zero_grad()
             loss.backward()
-            
-            # Gradient clipping for stability
-            torch.nn.utils.clip_grad_norm_(policy_model.parameters(), max_norm=config.grad_clip)
-            
             optimizer.step()
             
-            # Update metrics
-            metrics.add_episode_result(
-                reward=total_reward,
-                success=success,
-                steps=step_count,
-                loss=loss.item(),
-                states_visited=episode_states
-            )
-            
-            # Update learning rate scheduler
+            # Get recent metrics
             current_metrics = metrics.get_recent_metrics()
-            scheduler.step(current_metrics['avg_reward'])
             
             # Update progress bar
             progress_bar.set_postfix({
                 'reward': f"{current_metrics['avg_reward']:.1f}",
-                'success': f"{current_metrics['success_rate']:.2f}",
-                'steps': f"{current_metrics['avg_steps']:.1f}",
-                'states': current_metrics['unique_states']
+                'win rate': f"{current_metrics['success_rate']:.2f}",
+                'step': f"{current_metrics['avg_steps']:.1f}",
+                'state': current_metrics['unique_states']
             })
             
             # Periodically save model and plot progress
-            if (episode + 1) % config.save_frequency == 0 or episode == config.episodes - 1:
-                # Save current model
+            if (episode + 1) % config.save_frequency == 0:
+                # Plot progress
+                plt.clf()
+                plt.plot(metrics.rewards, alpha=0.5)
+                if len(metrics.rewards) >= EVAL_WINDOW:
+                    moving_avg = np.convolve(
+                        metrics.rewards,
+                        np.ones(EVAL_WINDOW) / EVAL_WINDOW,
+                        mode='valid'
+                    )
+                    plt.plot(
+                        range(EVAL_WINDOW - 1, len(metrics.rewards)),
+                        moving_avg,
+                        color='red'
+                    )
+                plt.xlabel("Episodes")
+                plt.ylabel("Total Reward")
+                plt.title("Training Progress")
+                plt.grid()
+                plt.savefig(f'{config.plot_dir}/training_curve.png')
+                
+                # Save model
                 policy_model.save(config.model_save_path)
-                
-                # Save intermediate model
-                epoch_model_path = f"{os.path.splitext(config.model_save_path)[0]}_ep{episode+1}.pth"
-                policy_model.save(epoch_model_path)
-                
-                # Plot training progress
-                metrics.plot_training_progress(output_path=config.plot_dir)
-                
-                # Save metrics
-                metrics_path = os.path.join(config.plot_dir, 'training_metrics.json')
-                metrics.save_to_file(metrics_path)
     
-    # Final save and plot
+    # Final save
     policy_model.save(config.model_save_path)
-    metrics.plot_training_progress(output_path=config.plot_dir)
     
     print(f"Training completed. Model saved to {config.model_save_path}")
     print(f"Final metrics: Success rate={current_metrics['success_rate']:.2f}, " 
@@ -556,50 +538,14 @@ def train_policy_gradient(config: TrainingConfig):
     return policy_model, metrics
 
 
-def calculate_discounted_returns(rewards: List[float], gamma: float) -> List[float]:
-    """
-    Calculate discounted returns for each step
-    
-    Args:
-        rewards: List of rewards for each step
-        gamma: Discount factor
-        
-    Returns:
-        List of discounted returns
-    """
-    returns = []
-    G = 0
-    
-    for r in reversed(rewards):
-        G = r + gamma * G
-        returns.insert(0, G)
-    
-    return returns
-
-
-def normalize_tensor(tensor: torch.Tensor) -> torch.Tensor:
-    """
-    Normalize tensor to have zero mean and unit variance
-    
-    Args:
-        tensor: Input tensor
-        
-    Returns:
-        Normalized tensor
-    """
-    if len(tensor) <= 1:
-        return tensor
-    
-    mean = tensor.mean()
-    std = tensor.std() + 1e-8  # Add small constant for numerical stability
-    
-    return (tensor - mean) / std
-
-
 if __name__ == '__main__':
     # Parse command line to get configuration file path
     parser = argparse.ArgumentParser(description='Train a policy gradient agent for taxi navigation')
     parser.add_argument('--config', type=str, default=None, help='Path to configuration file')
+    parser.add_argument('-o', '--output', type=str, default='trained_models/policy_model.pth', help='Path to save the model')
+    parser.add_argument('--checkpoint', type=str, default=None, help='Path to checkpoint file')
+    parser.add_argument('--lr', type=float, default=0.01, help='Learning rate')
+    parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
     args = parser.parse_args()
 
     if args.config:
@@ -607,6 +553,12 @@ if __name__ == '__main__':
     else:
         # Generate default configuration
         config = TrainingConfig()
+        # Apply command line arguments
+        config.model_save_path = args.output
+        config.checkpoint_path = args.checkpoint
+        config.learning_rate = args.lr
+        config.discount_factor = args.gamma
+        
         default_config_path = 'configs/default_config.yaml'
         os.makedirs(os.path.dirname(default_config_path), exist_ok=True)
         config.save(default_config_path)

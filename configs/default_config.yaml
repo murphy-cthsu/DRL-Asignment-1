@@ -1,14 +1,13 @@
 checkpoint_path: null
 difficulty_progression: true
 discount_factor: 0.99
-dropout_rate: 0.1
+dropout_rate: 0
 entropy_coefficient: 0.01
 episodes: 8000
 fuel_limit: 1000
 grad_clip: 1.0
 hidden_sizes:
-- 64
-- 32
+- 16
 learning_rate: 0.01
 max_grid_size: 11
 min_grid_size: 5
