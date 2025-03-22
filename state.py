@@ -214,7 +214,7 @@ class TaxiStateTracker:
         if known_count == 3:
             # Find index of unknown station
             unknown_index = self.location_types.index(StationState.UNEXPLORED)
-            
+            print(self.location_types)
             # Calculate what the unknown station must be (sum of all types = 7)
             deduced_type = StationState(7 - sum(self.location_types))
             self.location_types[unknown_index] = deduced_type
@@ -332,13 +332,13 @@ def enhance_reward(
     
     # Reward for successful pickup
     if not current_info.passenger_onboard and next_info.passenger_onboard:
-        enhanced_reward += 20
+        enhanced_reward += 30
     
     # Penalty for invalid dropoff
     elif (current_info.passenger_onboard and 
           not next_info.passenger_onboard and 
           not current_info.can_dropoff_passenger):
-        enhanced_reward -= 22
+        enhanced_reward -= 32
     
     # Reward for discovering new station information
     unknown_count_before = sum(1 for t in current_info.location_types 
@@ -347,7 +347,7 @@ def enhance_reward(
                              if t == StationState.UNEXPLORED)
     
     if unknown_count_before > unknown_count_after:
-        enhanced_reward += 15
+        enhanced_reward += 16
     
     # Reward for moving toward target
     if current_info.target_location == next_info.target_location:
