@@ -4,3 +4,4 @@ argparse
 torch
 matplotlib
 IPython
+pyyaml
