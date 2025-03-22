@@ -1,4 +1,4 @@
-from train_policy import PolicyModel 
+from train_policy import PolicyModel,TrainingConfig
 import torch
 from state import ACTION_COUNT, TaxiStateTracker  # Your refactored state classes
 
@@ -8,10 +8,11 @@ class PolicyAgent:
         self.state_tracker = TaxiStateTracker()
         
         # Create policy model with default configuration
+        config= TrainingConfig()
         self.policy = PolicyModel(
             input_dim=self.state_tracker.state_dimension, 
             output_dim=ACTION_COUNT, 
-            config='configs/default_config.yaml' # Use the architecture from your refactored model
+            config=config # Use the architecture from your refactored model
         )
         
         # Load the trained model
