@@ -25,7 +25,7 @@ class PolicyAgent:
         state, info = self.state_tracker.process_observation(obs)
         
         # Use the select_action method with deterministic=True for inference
-        action, _ = self.policy.select_action(state, deterministic=False)
+        action, _ = self.policy.select_action(state, deterministic=True)
         
         # Update the state tracker with the selected action
         self.state_tracker.update_after_action(action)
