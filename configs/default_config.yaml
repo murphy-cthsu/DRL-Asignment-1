@@ -1,0 +1,21 @@
+checkpoint_path: null
+difficulty_progression: true
+discount_factor: 0.99
+dropout_rate: 0.1
+entropy_coefficient: 0.01
+episodes: 8000
+fuel_limit: 1000
+grad_clip: 1.0
+hidden_sizes:
+- 64
+- 32
+learning_rate: 0.01
+max_grid_size: 11
+min_grid_size: 5
+model_save_path: trained_models/policy_model.pth
+plot_dir: training_plots
+save_frequency: 100
+scheduler_factor: 0.5
+scheduler_patience: 10
+scheduler_threshold: 0.01
+weight_decay: 1.0e-05
