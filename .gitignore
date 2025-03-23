@@ -7,6 +7,5 @@ __pycache__/
 venv/
 # ignore eval.py
 eval.py
-
 *.yaml
 *.pth
