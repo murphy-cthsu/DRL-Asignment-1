@@ -26,7 +26,7 @@ class PolicyAgent:
         self._last_observation = None
         
         # Exploration parameters
-        self.random_action_prob = 0.05  # Base probability for random actions
+        self.random_action_prob = 0.02  # Base probability for random actions
         self.last_random_action_step = 0
         self.random_action_cooldown = 3  # Steps to wait between random actions
     
@@ -52,7 +52,7 @@ class PolicyAgent:
             self.last_random_action_step = info.time_step
         else:
             # Use the policy model as normal
-            action, _ = self.policy.select_action(state, deterministic=False)
+            action, _ = self.policy.select_action(state, deterministic=True)
         
         # Update the state tracker with the selected action
         self.state_tracker.update_after_action(action)
