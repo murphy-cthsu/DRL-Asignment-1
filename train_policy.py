@@ -31,7 +31,7 @@ class TrainingConfig:
         """
         # Training parameters
         self.episodes = 10000
-        self.learning_rate = 0.01
+        self.learning_rate = 0.04
         self.discount_factor = 0.99
         self.entropy_coefficient = 0.01
         self.weight_decay = 1e-5
@@ -51,7 +51,7 @@ class TrainingConfig:
         self.model_save_path = 'trained_models/policy_model.pth'
         self.plot_dir = 'training_plots'
         self.checkpoint_path = None
-        self.save_frequency = 100
+        self.save_frequency = 1000
         
         # Optimizer parameters
         self.scheduler_patience = 10
@@ -447,7 +447,7 @@ def train_policy_gradient(config: TrainingConfig):
                 metrics.unique_states.add(next_state)
                 
                 # Check for success
-                if done and reward > 49:
+                if done and reward >= 49.9:
                     success = True
                 
                 # Apply reward shaping
@@ -506,6 +506,9 @@ def train_policy_gradient(config: TrainingConfig):
             
             # Periodically save model and plot progress
             if (episode + 1) % config.save_frequency == 0:
+                episode_path = f'{config.plot_dir}/episode_{episode + 1}.json'
+                if episode+1 >= config.episodes/2 and episode+1 % 5000 == 0:
+                    policy_model.save(episode_path)
                 # Plot progress
                 plt.clf()
                 plt.plot(metrics.rewards, alpha=0.5)

@@ -76,7 +76,7 @@ class TrainingTaxiEnv:
         obstacles_by_difficulty = {
             'easy': defaultdict(lambda: 0),
             'normal': {
-                10: 10, 9: 8, 8: 6, 7: 4, 6: 3, 5: 2
+                10: 10, 9: 8, 8: 6, 7: 4, 6: 3, 5: 3
             },
             'hard': {
                 10: 20, 9: 12, 8: 8, 7: 6, 6: 5, 5: 5
@@ -399,8 +399,9 @@ def run_agent(agent_file: str, render: bool = False, num_episodes: int = 1):
     for episode in range(num_episodes):
         # Create environment
         env = TrainingTaxiEnv(
-            max_fuel=5000,
+            max_fuel=100,
             n=np.random.randint(5, 11),
+            # difficulty='hard'
         )
         
         # Reset environment
@@ -456,5 +457,5 @@ def run_agent(agent_file: str, render: bool = False, num_episodes: int = 1):
 
 if __name__ == "__main__":
     # Run agent with rendering for 3 episodes
-    results = run_agent("student_agent.py", render=True, num_episodes=3)
+    results = run_agent("student_agent.py", render=True, num_episodes=50)
     print(f"Final Results: {results}")
