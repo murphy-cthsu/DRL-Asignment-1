@@ -6,7 +6,7 @@ import os
 import random
 from policy_agent import PolicyAgent
 
-agent=PolicyAgent('trained_models/policy_model_02.pth')
+agent=PolicyAgent('trained_models/policy_model_03.pth')
 
 def get_action(obs):
     return agent.get_action(obs)
