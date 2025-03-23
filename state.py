@@ -106,6 +106,18 @@ class TaxiStateTracker:
         self.previous_action: Optional[MovementAction] = None
         self.position_visit_frequency = defaultdict(int)
         self.time_step = 0
+        
+        # Action tracking for repetitive behavior detection
+        self.action_history = []
+        self.invalid_pickup_count = 0
+        self.invalid_dropoff_count = 0
+        self.repeated_action_count = 0
+        self.same_position_count = 0
+        self.previous_position = None
+        
+        # Flags for problematic behaviors
+        self.in_repetitive_loop = False
+        self.stuck_at_location = False
     
     def process_observation(self, observation) -> Tuple[Tuple, SimpleNamespace]:
         """
@@ -120,6 +132,18 @@ class TaxiStateTracker:
         """
         # Extract observation components
         self._extract_observation_data(observation)
+        
+        # Check if agent is stuck at the same position
+        if self.previous_position == self.taxi_position:
+            self.same_position_count += 1
+            if self.same_position_count > 3:
+                self.stuck_at_location = True
+        else:
+            self.same_position_count = 0
+            self.stuck_at_location = False
+        
+        # Update previous position
+        self.previous_position = self.taxi_position
         
         # Update station information based on current observation
         self._update_station_knowledge()
@@ -146,6 +170,14 @@ class TaxiStateTracker:
         # Track state visit frequency
         self.position_visit_frequency[(*self.taxi_position, self.passenger_onboard)] += 1
         
+        # Check for repetitive patterns in recent actions (last 6 actions)
+        if len(self.action_history) >= 6:
+            # Check for repeating patterns (like A-B-A-B-A-B or A-A-A-A-A-A)
+            if (self._is_alternating_pattern() or self._is_same_action_repeated()):
+                self.in_repetitive_loop = True
+            else:
+                self.in_repetitive_loop = False
+        
         # Increment time step
         self.time_step += 1
         
@@ -162,6 +194,65 @@ class TaxiStateTracker:
         info = SimpleNamespace(**vars(self))
         
         return state, info
+    
+    def _is_alternating_pattern(self):
+        """Check for alternating action patterns like A-B-A-B"""
+        if len(self.action_history) < 4:
+            return False
+        
+        # Check last 4 actions for A-B-A-B pattern
+        recent = self.action_history[-4:]
+        return (recent[0] == recent[2] and 
+                recent[1] == recent[3] and 
+                recent[0] != recent[1])
+    
+    def _is_same_action_repeated(self):
+        """Check if the same action is repeated many times"""
+        if len(self.action_history) < 3:
+            return False
+        
+        # Check if last 3 actions are the same
+        recent = self.action_history[-3:]
+        return recent.count(recent[0]) == 3
+    
+    def update_after_action(self, action: int):
+        """Update state after an action is taken"""
+        # Store previous action
+        self.previous_action = MovementAction(action)
+        self.action_history.append(action)
+        
+        # Keep history bounded
+        if len(self.action_history) > 10:
+            self.action_history.pop(0)
+        
+        # Check for repeated actions of the same type
+        if len(self.action_history) >= 2 and self.action_history[-1] == self.action_history[-2]:
+            self.repeated_action_count += 1
+        else:
+            self.repeated_action_count = 0
+        
+        # Track invalid pickup/dropoff attempts
+        if action == MovementAction.TAKE and not self.can_pickup_passenger:
+            self.invalid_pickup_count += 1
+        else:
+            # Reset counter if we're not trying invalid pickup
+            if action != MovementAction.TAKE:
+                self.invalid_pickup_count = 0
+        
+        if action == MovementAction.DROP and not self.can_dropoff_passenger:
+            self.invalid_dropoff_count += 1
+        else:
+            # Reset counter if we're not trying invalid dropoff
+            if action != MovementAction.DROP:
+                self.invalid_dropoff_count = 0
+        
+        # Update passenger status based on action
+        if action == MovementAction.TAKE and self.taxi_position == self.passenger_location:
+            self.passenger_onboard = True
+            # Reset invalid pickup counter after successful pickup
+            self.invalid_pickup_count = 0
+        elif action == MovementAction.DROP:
+            self.passenger_onboard = False
     
     def _extract_observation_data(self, observation):
         """Extract and store observation components"""
@@ -308,14 +399,14 @@ class TaxiStateTracker:
         """Return the dimensionality of the state representation"""
         return len(TaxiStateTracker().process_observation([0] * 16)[0])
 
-
 def enhance_reward(
     original_reward: float, 
     current_info: SimpleNamespace, 
     next_info: SimpleNamespace
 ) -> float:
     """
-    Enhance the environment reward with additional signals
+    Enhanced reward function that discourages repetitive actions and
+    provides appropriate rewards for different stages of the task.
     
     Args:
         original_reward: Original reward from environment
@@ -325,42 +416,182 @@ def enhance_reward(
     Returns:
         enhanced_reward: Modified reward with additional signals
     """
+    # Determine current stage
+    # Stage 1: Find passenger (exploration)
+    # Stage 2: Pickup passenger
+    # Stage 3: Find destination (with passenger)
+    # Stage 4: Dropoff passenger
+    
+    if current_info.passenger_onboard:
+        stage = 3 if StationState.DESTINATION_LOCATION not in current_info.location_types else 4
+    else:
+        stage = 1 if current_info.passenger_location is None else 2
+    
     # Modify standard environment rewards
     if original_reward == 50 - 0.1:  # Successfully completed task
-        enhanced_reward = 50
+        enhanced_reward = 100  # Increased to make it more rewarding
     elif original_reward == -10.1:  # Invalid pickup/dropoff
-        enhanced_reward = -50
+        enhanced_reward = -100  # Increased penalty for critical mistake
     elif original_reward == -5.1:  # Collision with obstacle
-        enhanced_reward = -50
+        enhanced_reward = -50  # Keep same penalty for collision
     elif original_reward == -0.1:  # Standard movement
-        enhanced_reward = -0.1
+        enhanced_reward = -0.2  # Higher cost for movement to encourage efficiency
     else:
         enhanced_reward = original_reward
     
-    # Reward for successful pickup
-    if not current_info.passenger_onboard and next_info.passenger_onboard:
-        enhanced_reward += 30
+    # === STAGE-SPECIFIC REWARDS ===
     
-    # Penalty for invalid dropoff
-    elif (current_info.passenger_onboard and 
-          not next_info.passenger_onboard and 
-          not current_info.can_dropoff_passenger):
-        enhanced_reward -= 32
+    # Stage 1: Finding passenger (exploration phase)
+    if stage == 1:
+        # Reward for discovering new station information
+        unknown_count_before = sum(1 for t in current_info.location_types 
+                                  if t == StationState.UNEXPLORED)
+        unknown_count_after = sum(1 for t in next_info.location_types 
+                                 if t == StationState.UNEXPLORED)
+        
+        if unknown_count_before > unknown_count_after:
+            enhanced_reward += 20  # Increased exploration reward
+        
+        # Finding the passenger is a big win
+        if next_info.passenger_location is not None and current_info.passenger_location is None:
+            enhanced_reward += 25
     
-    # Reward for discovering new station information
-    unknown_count_before = sum(1 for t in current_info.location_types 
-                              if t == StationState.UNEXPLORED)
-    unknown_count_after = sum(1 for t in next_info.location_types 
-                             if t == StationState.UNEXPLORED)
+    # Stage 2: Going to pickup passenger
+    elif stage == 2:
+        # Reward for moving toward passenger
+        distance_before = distance(current_info.taxi_position, current_info.passenger_location)
+        distance_after = distance(next_info.taxi_position, next_info.passenger_location)
+        
+        # Significant reward for getting closer to passenger
+        if distance_after < distance_before:
+            enhanced_reward += 2
+        elif distance_after > distance_before:
+            enhanced_reward -= 1  # Penalty for moving away from passenger
     
-    if unknown_count_before > unknown_count_after:
-        enhanced_reward += 16
+        # Big reward for successful pickup
+        if not current_info.passenger_onboard and next_info.passenger_onboard:
+            enhanced_reward += 30
     
-    # Reward for moving toward target
-    if current_info.target_location == next_info.target_location:
-        distance_before = distance(current_info.taxi_position, current_info.target_location)
-        distance_after = distance(next_info.taxi_position, next_info.target_location)
-        distance_progress = distance_before - distance_after
-        enhanced_reward += 0.1 * distance_progress
+    # Stage 3: Finding destination with passenger
+    elif stage == 3:
+        # Reward for discovering destination
+        if (StationState.DESTINATION_LOCATION not in current_info.location_types and
+            StationState.DESTINATION_LOCATION in next_info.location_types):
+            enhanced_reward += 35  # Big reward for finding destination
+        
+        # Reward for discovering any station (might be destination)
+        unknown_count_before = sum(1 for t in current_info.location_types 
+                                  if t == StationState.UNEXPLORED)
+        unknown_count_after = sum(1 for t in next_info.location_types 
+                                 if t == StationState.UNEXPLORED)
+        
+        if unknown_count_before > unknown_count_after:
+            enhanced_reward += 15
+    
+    # Stage 4: Taking passenger to destination
+    elif stage == 4:
+        # Find destination position
+        destination_idx = next_info.location_types.index(StationState.DESTINATION_LOCATION)
+        destination_pos = next_info.station_positions[destination_idx]
+        
+        # Reward for moving toward destination
+        distance_before = distance(current_info.taxi_position, destination_pos)
+        distance_after = distance(next_info.taxi_position, destination_pos)
+        
+        # More significant reward for getting closer to destination
+        if distance_after < distance_before:
+            enhanced_reward += 3
+        elif distance_after > distance_before:
+            enhanced_reward -= 1.5  # Penalty for moving away from destination
+    
+    # === PENALTIES FOR REPETITIVE BEHAVIOR ===
+    
+    # Penalty for revisiting states (discourages loops)
+    visit_count = next_info.position_visit_frequency[(*next_info.taxi_position, next_info.passenger_onboard)]
+    if visit_count > 2:
+        enhanced_reward -= 0.5 * (visit_count - 2)  # Increasing penalty for repeated visits
+    
+    # Penalty for repeating the same action
+    if current_info.previous_action is not None and next_info.previous_action is not None:
+        if current_info.previous_action == next_info.previous_action:
+            enhanced_reward -= 5  # Penalty for taking the same action twice
+    
+    # Penalty for ping-ponging between two states
+    if hasattr(current_info, 'prev_position') and current_info.prev_position == next_info.taxi_position:
+        enhanced_reward -= 5  # Significant penalty for going back and forth
+    
+    # Store current position for next step comparison
+    next_info.prev_position = current_info.taxi_position
+    
+    # Penalty for invalid pickup attempts
+    if (next_info.previous_action == MovementAction.TAKE and 
+        not next_info.passenger_onboard and 
+        not next_info.can_pickup_passenger):
+        enhanced_reward -= 15  # Significant penalty for invalid pickup
+    
+    # Penalty for invalid dropoff attempts
+    if (current_info.passenger_onboard and 
+        not next_info.passenger_onboard and 
+        not current_info.can_dropoff_passenger):
+        enhanced_reward -= 20  # Significant penalty for invalid dropoff
+    
+    # Time pressure (increasing penalty over time)
+    time_penalty = -0.01 * next_info.time_step  # Gradually increases time pressure
+    enhanced_reward += max(time_penalty, -2.0)  # Cap the time penalty
     
     return enhanced_reward
+# def enhance_reward(
+#     original_reward: float, 
+#     current_info: SimpleNamespace, 
+#     next_info: SimpleNamespace
+# ) -> float:
+#     """
+#     Enhance the environment reward with additional signals
+    
+#     Args:
+#         original_reward: Original reward from environment
+#         current_info: Current state info
+#         next_info: Next state info
+        
+#     Returns:
+#         enhanced_reward: Modified reward with additional signals
+#     """
+#     # Modify standard environment rewards
+#     if original_reward == 50 - 0.1:  # Successfully completed task
+#         enhanced_reward = 50
+#     elif original_reward == -10.1:  # Invalid pickup/dropoff
+#         enhanced_reward = -80
+#     elif original_reward == -5.1:  # Collision with obstacle
+#         enhanced_reward = -50
+#     elif original_reward == -0.1:  # Standard movement
+#         enhanced_reward = -0.1
+#     else:
+#         enhanced_reward = original_reward
+    
+#     # Reward for successful pickup
+#     if not current_info.passenger_onboard and next_info.passenger_onboard:
+#         enhanced_reward += 30
+    
+#     # Penalty for invalid dropoff
+#     elif (current_info.passenger_onboard and 
+#           not next_info.passenger_onboard and 
+#           not current_info.can_dropoff_passenger):
+#         enhanced_reward -= 35
+    
+#     # Reward for discovering new station information
+#     unknown_count_before = sum(1 for t in current_info.location_types 
+#                               if t == StationState.UNEXPLORED)
+#     unknown_count_after = sum(1 for t in next_info.location_types 
+#                              if t == StationState.UNEXPLORED)
+    
+#     if unknown_count_before > unknown_count_after:
+#         enhanced_reward += 16
+    
+#     # Reward for moving toward target
+#     if current_info.target_location == next_info.target_location:
+#         distance_before = distance(current_info.taxi_position, current_info.target_location)
+#         distance_after = distance(next_info.taxi_position, next_info.target_location)
+#         distance_progress = distance_before - distance_after
+#         enhanced_reward += 0.1 * distance_progress
+    
+#     return enhanced_reward
