@@ -52,7 +52,7 @@ class PolicyAgent:
             self.last_random_action_step = info.time_step
         else:
             # Use the policy model as normal
-            action, _ = self.policy.select_action(state, deterministic=True)
+            action, _ = self.policy.select_action(state, deterministic=False)
         
         # Update the state tracker with the selected action
         self.state_tracker.update_after_action(action)
