@@ -551,7 +551,7 @@ class PolicyAgent:
         
         # Decide if we should take a random action to break out of loops
         should_explore = self._should_take_random_action(info)
-        should_explore = False
+        # should_explore = False
         if should_explore:
             # Take random action but avoid the problematic ones if detected
             action = self._select_smart_random_action(info)
